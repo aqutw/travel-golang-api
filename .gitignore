@@ -1,0 +1,7 @@
+/bin/
+/coverage.out
+/.env
+*.log
+.DS_Store
+/data/*.sqlite3-*
+/data/*.tmp
