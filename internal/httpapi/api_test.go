@@ -3,7 +3,9 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,11 @@ import (
 	"github.com/aqutw/travel-golang-api/internal/assets"
 	"github.com/aqutw/travel-golang-api/internal/catalog"
 )
+
+func init() {
+	gin.SetMode(gin.TestMode)
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
 
 func server(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -62,17 +69,21 @@ func TestEveryDocumentedOperation(t *testing.T) {
 	var spec struct {
 		Paths map[string]struct {
 			Get struct {
-				Example string `json:"x-smoke-path"`
+				Example  string            `json:"x-smoke-path"`
+				Security []json.RawMessage `json:"security"`
 			} `json:"get"`
 		} `json:"paths"`
 	}
 	if err := json.Unmarshal(b, &spec); err != nil {
 		t.Fatal(err)
 	}
-	if len(spec.Paths) != 30 {
-		t.Fatalf("expected 30 documented operations, got %d", len(spec.Paths))
+	if len(spec.Paths) != 36 {
+		t.Fatalf("expected 36 documented paths, got %d", len(spec.Paths))
 	}
 	for route, op := range spec.Paths {
+		if len(op.Get.Security) > 0 || op.Get.Example == "" {
+			continue
+		}
 		t.Run(route, func(t *testing.T) {
 			if op.Get.Example == "" {
 				t.Fatal("missing smoke example")

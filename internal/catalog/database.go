@@ -41,7 +41,7 @@ func New(path string, now time.Time) (*Catalog, error) {
 		db.Close()
 		return nil, fmt.Errorf("read catalog %s: %w", abs, err)
 	}
-	if version != 1 || appID != 1414676822 {
+	if (version != 1 && version != 2) || appID != 1414676822 {
 		db.Close()
 		return nil, fmt.Errorf("unsupported catalog schema: application_id=%d user_version=%d", appID, version)
 	}

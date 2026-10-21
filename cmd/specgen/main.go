@@ -17,6 +17,9 @@ type object = map[string]any
 var schemas = object{}
 
 func schema(t reflect.Type) object {
+	if t == reflect.TypeOf(json.RawMessage{}) {
+		return object{}
+	}
 	if t.Kind() == reflect.Pointer {
 		return schema(t.Elem())
 	}
@@ -201,11 +204,12 @@ func main() {
 		response := object{"type": "object", "required": []string{"data", "meta"}, "additionalProperties": false, "properties": object{"data": e.data, "meta": meta}}
 		responses := object{"200": object{"description": "成功；所有內容為 mock 資料。", "content": object{"application/json": object{"schema": response}}}}
 		for _, status := range []string{"400", "404", "405", "500"} {
-			responses[status] = object{"description": map[string]string{"400": "查詢參數無效。未知參數、重複參數與不支援語系回傳 400。", "404": "資源不存在或不適用該商品品類。", "405": "非唯讀 HTTP 方法。", "500": "資料庫讀取失敗。"}[status], "content": object{"application/json": object{"schema": valueSchema(httpapi.ErrorEnvelope{})}}}
+			responses[status] = object{"description": map[string]string{"400": "查詢參數無效。未知參數、重複參數與不支援語系回傳 400。", "404": "資源不存在或不適用該商品品類。", "405": "該路由不支援此 HTTP 方法。", "500": "資料庫讀取失敗。"}[status], "content": object{"application/json": object{"schema": valueSchema(httpapi.ErrorEnvelope{})}}}
 		}
 		paths[e.path] = object{"get": object{"summary": e.summary, "operationId": strings.NewReplacer("/", "_", "{", "", "}", "").Replace(strings.TrimPrefix(e.path, "/")), "parameters": ps, "responses": responses, "x-smoke-path": e.example}}
 	}
-	doc := object{"openapi": "3.0.3", "info": object{"title": "Travel Golang Mock API", "version": "1.0.0", "description": "供旅遊前端開發使用的獨立唯讀示範 API。所有文字、圖片、價格與庫存為虛構。資料以服務啟動時的 reference_date 為基準。"}, "servers": []object{{"url": "/"}}, "paths": paths, "components": object{"schemas": schemas, "parameters": params}}
+	addWritePaths(paths)
+	doc := object{"openapi": "3.0.3", "info": object{"title": "Travel Gin API", "version": "2.0.0", "description": "供旅遊前端開發使用的示範 API。所有文字、圖片、價格與庫存為虛構。資料以服務啟動時的 reference_date 為基準。"}, "servers": []object{{"url": "/"}}, "paths": paths, "components": object{"schemas": schemas, "parameters": params, "securitySchemes": object{"WorkspaceKey": object{"type": "apiKey", "in": "header", "name": "X-API-Key", "description": "單一 workspace 的受信任服務端金鑰；以 API_WRITE_KEY 設定。"}}}}
 	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		panic(err)
@@ -213,5 +217,5 @@ func main() {
 	if err = os.WriteFile("internal/assets/openapi.json", append(b, '\n'), 0644); err != nil {
 		panic(err)
 	}
-	fmt.Printf("Generated OpenAPI: %d GET operations, %d schemas\n", len(paths), len(schemas))
+	fmt.Printf("Generated OpenAPI: %d paths, %d schemas\n", len(paths), len(schemas))
 }

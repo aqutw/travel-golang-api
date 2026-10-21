@@ -24,6 +24,10 @@
 | `faqs` | 常見問題 |
 | `settings` | 導覽、前端設定與首頁配置 |
 | `media` | 圖片 MIME type 與二進位內容 |
+| `documents` | 收藏與行程的內容、版本及時間 |
+| `document_products` | 收藏及行程的商品外鍵關聯 |
+| `managed_reviews` | API 建立的評價與編輯版本 |
+| `idempotency_keys` | POST 正規化 request hash 與已提交 response data |
 
 ```mermaid
 erDiagram
@@ -89,3 +93,11 @@ make generate
 ```sh
 python3 scripts/database_manifest.py > /tmp/travel-catalog.json
 ```
+
+## Schema migration 與寫入
+
+新資料庫的 `PRAGMA user_version` 為 2。`internal/workspace/migration.sql` 為 v1 → v2 migration，由 Go embed 及資料生成程式共用。啟用 API_WRITE_KEY 時服務以 transaction 套用 migration；版本 2 重新啟動不會重建資料表或清空資料。catalog 查詢仍可開啟版本 1 與版本 2。
+
+資料檔與所在目錄都需要寫入權限，SQLite 使用 DELETE journal，transaction 期間可能產生暫時 journal，完成後只保留主要 sqlite3 檔案。Docker 掛載整個 /app/data 目錄即可保存寫入。
+
+`make generate` 會還原種子資料，也會清除新增的收藏、行程、評價及 idempotency 記錄。執行前先備份需要保留的資料。

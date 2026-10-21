@@ -1,9 +1,9 @@
 GO ?= go
 PYTHON ?= python3
-# Go 1.22 on recent macOS may need: make GOFLAGS='-ldflags=-linkmode=external' run
+GOFLAGS ?= -tags=nomsgpack
 export GOFLAGS
 
-.PHONY: run build test race vet generate verify
+.PHONY: run build test race vet generate verify verify-writes
 run:
 	$(GO) run ./cmd/server
 build:
@@ -19,3 +19,6 @@ generate:
 	$(GO) run ./cmd/specgen
 verify:
 	$(PYTHON) scripts/verify_api.py --base-url http://localhost:8080
+
+verify-writes:
+	$(PYTHON) scripts/verify_writes.py --base-url http://localhost:8080

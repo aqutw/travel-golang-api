@@ -113,6 +113,7 @@ def build_database(data, media):
             for key, value in data['settings'].items():
                 insert(db, 'settings', {'key': key, 'value': encode(value)})
             create_views(db)
+            db.executescript((ROOT / "internal/workspace/migration.sql").read_text())
             assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
             assert not db.execute('PRAGMA foreign_key_check').fetchall()
             db.commit()

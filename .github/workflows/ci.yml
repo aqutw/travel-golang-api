@@ -25,11 +25,42 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Validate the running API and OpenAPI contract
         run: |
-          REFERENCE_DATE=2026-10-20 ./bin/travel-api > /tmp/travel-api.log 2>&1 &
+          export API_WRITE_KEY=ci-test-key-at-least-32-bytes-000000
+          cp data/travel.sqlite3 /tmp/travel-ci.sqlite3
+          DB_PATH=/tmp/travel-ci.sqlite3 REFERENCE_DATE=2026-10-20 ./bin/travel-api > /tmp/travel-api.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid"' EXIT
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://localhost:8080/healthz > /dev/null; then break; fi
             sleep 1
           done
-          make verify
+          make verify verify-writes
+      - name: Verify Docker build and persistent writes
+        env:
+          API_WRITE_KEY: ci-test-key-at-least-32-bytes-000000
+        run: |
+          docker build -t travel-gin-api .
+          docker volume create travel-ci-data
+          trap 'docker rm -f travel-ci; docker volume rm travel-ci-data' EXIT
+          docker run -d --name travel-ci --read-only -p 8085:8080 \
+            -e API_WRITE_KEY -e REFERENCE_DATE=2026-10-20 \
+            --mount type=volume,source=travel-ci-data,target=/app/data travel-gin-api
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8085/healthz > /dev/null; then break; fi
+            sleep 1
+          done
+          python scripts/verify_api.py --base-url http://localhost:8085
+          python scripts/verify_writes.py --base-url http://localhost:8085
+          docker restart travel-ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8085/healthz > /dev/null; then break; fi
+            sleep 1
+          done
+          python - <<'PYCODE'
+          import json, os, urllib.request
+          request = urllib.request.Request('http://localhost:8085/api/v1/wishlists', headers={'X-API-Key': os.environ['API_WRITE_KEY']})
+          with urllib.request.urlopen(request) as response:
+              body = json.load(response)
+          assert len(body['data']) == 1 and body['data'][0]['version'] == 2, body
+          print('Docker restart preserved SQLite writes.')
+          PYCODE

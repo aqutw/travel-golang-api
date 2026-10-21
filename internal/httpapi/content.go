@@ -3,7 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"github.com/aqutw/travel-golang-api/internal/catalog"
-	"net/http"
+	"github.com/gin-gonic/gin"
 	"sort"
 	"strings"
 )
@@ -65,7 +65,8 @@ type Suggestion struct {
 	Image    catalog.Image `json:"image"`
 }
 
-func (a *API) cruiseRegions(w http.ResponseWriter, r *http.Request) {
+func (a *API) cruiseRegions(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
@@ -105,7 +106,8 @@ func (a *API) cruiseRegions(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reply(w, result)
 }
-func (a *API) config(w http.ResponseWriter, r *http.Request) {
+func (a *API) config(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
@@ -120,7 +122,8 @@ func (a *API) config(w http.ResponseWriter, r *http.Request) {
 	config["product_types"] = categories
 	a.reply(w, config)
 }
-func (a *API) navigation(w http.ResponseWriter, r *http.Request) {
+func (a *API) navigation(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
@@ -129,7 +132,8 @@ func (a *API) navigation(w http.ResponseWriter, r *http.Request) {
 		a.reply(w, data)
 	}
 }
-func (a *API) categories(w http.ResponseWriter, r *http.Request) {
+func (a *API) categories(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
@@ -156,7 +160,8 @@ func take[T any](items []T, n int) []T {
 	}
 	return items[:n]
 }
-func (a *API) home(w http.ResponseWriter, r *http.Request) {
+func (a *API) home(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
@@ -225,7 +230,8 @@ func (a *API) home(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reply(w, h)
 }
-func (a *API) destinations(w http.ResponseWriter, r *http.Request) {
+func (a *API) destinations(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "q", "country", "page", "per_page")
 	country := q.enum("country", "", "TW", "JP", "KR", "TH", "SG")
 	page, size := q.pagination()
@@ -244,11 +250,12 @@ func (a *API) destinations(w http.ResponseWriter, r *http.Request) {
 	}
 	listReply(a, w, items, page, size, nil)
 }
-func (a *API) destination(w http.ResponseWriter, r *http.Request) {
+func (a *API) destination(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
-	d, err := a.catalog.Destination(r.Context(), r.PathValue("id"))
+	d, err := a.catalog.Destination(r.Context(), ctx.Param("id"))
 	if !resourceOK(w, err, "destination") {
 		return
 	}
@@ -274,7 +281,8 @@ func (a *API) destination(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reply(w, DestinationPage{d, len(items), take(items, 6), collections})
 }
-func (a *API) suggestions(w http.ResponseWriter, r *http.Request) {
+func (a *API) suggestions(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "q", "type", "limit")
 	limit := q.integer("limit", 8, 1, 20)
 	kind := q.enum("type", "", "stay", "cruise", "tour", "activity", "transfer", "esim", "sport", "rail")
@@ -303,7 +311,8 @@ func (a *API) suggestions(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reply(w, take(items, limit))
 }
-func (a *API) collections(w http.ResponseWriter, r *http.Request) {
+func (a *API) collections(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "page", "per_page")
 	page, size := q.pagination()
 	if !valid(w, q) {
@@ -314,21 +323,23 @@ func (a *API) collections(w http.ResponseWriter, r *http.Request) {
 		listReply(a, w, items, page, size, nil)
 	}
 }
-func (a *API) collection(w http.ResponseWriter, r *http.Request) {
+func (a *API) collection(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
-	item, err := a.catalog.Collection(r.Context(), r.PathValue("id"))
+	item, err := a.catalog.Collection(r.Context(), ctx.Param("id"))
 	if resourceOK(w, err, "collection") {
 		a.reply(w, item)
 	}
 }
-func (a *API) collectionProducts(w http.ResponseWriter, r *http.Request) {
+func (a *API) collectionProducts(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q, s, page, size := a.searchQuery(r)
 	if !valid(w, q) {
 		return
 	}
-	c, err := a.catalog.Collection(r.Context(), r.PathValue("id"))
+	c, err := a.catalog.Collection(r.Context(), ctx.Param("id"))
 	if !resourceOK(w, err, "collection") {
 		return
 	}
@@ -349,7 +360,8 @@ func (a *API) collectionProducts(w http.ResponseWriter, r *http.Request) {
 	facets := catalog.CountFacets(items)
 	listReply(a, w, items, page, size, &facets)
 }
-func (a *API) campaigns(w http.ResponseWriter, r *http.Request) {
+func (a *API) campaigns(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "page", "per_page")
 	page, size := q.pagination()
 	if !valid(w, q) {
@@ -360,16 +372,18 @@ func (a *API) campaigns(w http.ResponseWriter, r *http.Request) {
 		listReply(a, w, items, page, size, nil)
 	}
 }
-func (a *API) campaign(w http.ResponseWriter, r *http.Request) {
+func (a *API) campaign(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
-	item, err := a.catalog.Campaign(r.Context(), r.PathValue("id"))
+	item, err := a.catalog.Campaign(r.Context(), ctx.Param("id"))
 	if resourceOK(w, err, "campaign") {
 		a.reply(w, item)
 	}
 }
-func (a *API) articles(w http.ResponseWriter, r *http.Request) {
+func (a *API) articles(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "destination_id", "page", "per_page")
 	page, size := q.pagination()
 	if !valid(w, q) {
@@ -387,16 +401,18 @@ func (a *API) articles(w http.ResponseWriter, r *http.Request) {
 	}
 	listReply(a, w, items, page, size, nil)
 }
-func (a *API) article(w http.ResponseWriter, r *http.Request) {
+func (a *API) article(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
-	item, err := a.catalog.Article(r.Context(), r.PathValue("id"))
+	item, err := a.catalog.Article(r.Context(), ctx.Param("id"))
 	if resourceOK(w, err, "article") {
 		a.reply(w, item)
 	}
 }
-func (a *API) faqs(w http.ResponseWriter, r *http.Request) {
+func (a *API) faqs(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "category", "q", "page", "per_page")
 	page, size := q.pagination()
 	if !valid(w, q) {

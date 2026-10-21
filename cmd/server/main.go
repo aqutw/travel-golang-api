@@ -3,15 +3,21 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/aqutw/travel-golang-api/internal/catalog"
 	"github.com/aqutw/travel-golang-api/internal/httpapi"
+	"github.com/aqutw/travel-golang-api/internal/workspace"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -41,7 +47,38 @@ func run() error {
 		return err
 	}
 	defer c.Close()
-	srv := &http.Server{Addr: addr, Handler: httpapi.New(c), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	apiKey := os.Getenv("API_WRITE_KEY")
+	if apiKey != "" && len(apiKey) < 32 {
+		return errors.New("API_WRITE_KEY must contain at least 32 bytes")
+	}
+	origins := []string{"*"}
+	if raw := os.Getenv("CORS_ORIGINS"); raw != "" {
+		origins = strings.Split(raw, ",")
+		for i, origin := range origins {
+			origin = strings.TrimSpace(origin)
+			origins[i] = origin
+			if origin == "*" {
+				if len(origins) != 1 {
+					return errors.New("CORS_ORIGINS wildcard must be used alone")
+				}
+				continue
+			}
+			u, err := url.Parse(origin)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+				return fmt.Errorf("invalid CORS_ORIGINS origin: %q", origin)
+			}
+		}
+	}
+	var store *workspace.Store
+	if apiKey != "" {
+		store, err = workspace.New(dbPath)
+		if err != nil {
+			return err
+		}
+		defer store.Close()
+	}
+	gin.SetMode(gin.ReleaseMode)
+	srv := &http.Server{Addr: addr, Handler: httpapi.New(c, httpapi.Options{Store: store, APIKey: apiKey, AllowedOrigins: origins, Logger: slog.New(slog.NewJSONHandler(os.Stdout, nil))}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	result := make(chan error, 1)

@@ -1,4 +1,4 @@
-// Package httpapi exposes read-only page data over HTTP.
+// Package httpapi exposes the travel API through Gin.
 package httpapi
 
 import (
@@ -14,9 +14,14 @@ import (
 
 	"github.com/aqutw/travel-golang-api/internal/assets"
 	"github.com/aqutw/travel-golang-api/internal/catalog"
+	"github.com/aqutw/travel-golang-api/internal/workspace"
+	"github.com/gin-gonic/gin"
 )
 
-type API struct{ catalog *catalog.Catalog }
+type API struct {
+	catalog *catalog.Catalog
+	store   *workspace.Store
+}
 type Pagination struct {
 	Page       int  `json:"page"`
 	PerPage    int  `json:"per_page"`
@@ -37,8 +42,9 @@ type Envelope struct {
 	Meta Meta `json:"meta"`
 }
 type ErrorBody struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string           `json:"code"`
+	Message string           `json:"message"`
+	Fields  []FieldViolation `json:"fields,omitempty"`
 }
 type ErrorEnvelope struct {
 	Error ErrorBody `json:"error"`
@@ -50,7 +56,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 func failure(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, ErrorEnvelope{ErrorBody{code, message}})
+	writeJSON(w, status, ErrorEnvelope{ErrorBody{Code: code, Message: message}})
 }
 func valid(w http.ResponseWriter, q *query) bool {
 	if !databaseOK(w, q.dbErr) {
@@ -102,90 +108,106 @@ func listReply[T any](a *API, w http.ResponseWriter, items []T, page, size int, 
 	writeJSON(w, 200, Envelope{data, m})
 }
 
-func New(c *catalog.Catalog) http.Handler {
-	a := &API{catalog: c}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/config", a.config)
-	mux.HandleFunc("/api/v1/navigation", a.navigation)
-	mux.HandleFunc("/api/v1/home", a.home)
-	mux.HandleFunc("/api/v1/categories", a.categories)
-	mux.HandleFunc("/api/v1/cruise/regions", a.cruiseRegions)
-	mux.HandleFunc("/api/v1/destinations", a.destinations)
-	mux.HandleFunc("/api/v1/destinations/{id}", a.destination)
-	mux.HandleFunc("/api/v1/search/suggestions", a.suggestions)
-	mux.HandleFunc("/api/v1/search/filters", a.filters)
-	mux.HandleFunc("/api/v1/products", a.products)
-	mux.HandleFunc("/api/v1/products/map", a.productMap)
-	mux.HandleFunc("/api/v1/products/{id}", a.product)
-	mux.HandleFunc("/api/v1/products/{id}/rooms", a.options)
-	mux.HandleFunc("/api/v1/products/{id}/cabins", a.options)
-	mux.HandleFunc("/api/v1/products/{id}/plans", a.options)
-	mux.HandleFunc("/api/v1/products/{id}/itinerary", a.itinerary)
-	mux.HandleFunc("/api/v1/products/{id}/calendar", a.calendar)
-	mux.HandleFunc("/api/v1/products/{id}/departures", a.departures)
-	mux.HandleFunc("/api/v1/products/{id}/availability", a.availability)
-	mux.HandleFunc("/api/v1/products/{id}/reviews", a.reviews)
-	mux.HandleFunc("/api/v1/products/{id}/related", a.related)
-	mux.HandleFunc("/api/v1/collections", a.collections)
-	mux.HandleFunc("/api/v1/collections/{id}", a.collection)
-	mux.HandleFunc("/api/v1/collections/{id}/products", a.collectionProducts)
-	mux.HandleFunc("/api/v1/campaigns", a.campaigns)
-	mux.HandleFunc("/api/v1/campaigns/{id}", a.campaign)
-	mux.HandleFunc("/api/v1/articles", a.articles)
-	mux.HandleFunc("/api/v1/articles/{id}", a.article)
-	mux.HandleFunc("/api/v1/faqs", a.faqs)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if valid(w, newQuery(r)) && databaseOK(w, c.Ping(r.Context())) {
-			a.reply(w, map[string]string{"status": "ok"})
+func New(c *catalog.Catalog, settings ...Options) *gin.Engine {
+	opts := defaultOptions()
+	if len(settings) > 0 {
+		opts = settings[0].withDefaults()
+	}
+	a := &API{catalog: c, store: opts.Store}
+	router := gin.New()
+	router.HandleMethodNotAllowed = true
+	router.RedirectTrailingSlash = false
+	router.RedirectFixedPath = false
+	_ = router.SetTrustedProxies(nil)
+	router.Use(requestID(), accessLog(opts.Logger), recovery(opts.Logger), transport(opts), bodyLimit())
+	read := func(path string, handler gin.HandlerFunc) { router.GET(path, handler); router.HEAD(path, handler) }
+	read("/api/v1/config", a.config)
+	read("/api/v1/navigation", a.navigation)
+	read("/api/v1/home", a.home)
+	read("/api/v1/categories", a.categories)
+	read("/api/v1/cruise/regions", a.cruiseRegions)
+	read("/api/v1/destinations", a.destinations)
+	read("/api/v1/destinations/:id", a.destination)
+	read("/api/v1/search/suggestions", a.suggestions)
+	read("/api/v1/search/filters", a.filters)
+	read("/api/v1/products", a.products)
+	read("/api/v1/products/map", a.productMap)
+	read("/api/v1/products/:id", a.product)
+	read("/api/v1/products/:id/rooms", a.options)
+	read("/api/v1/products/:id/cabins", a.options)
+	read("/api/v1/products/:id/plans", a.options)
+	read("/api/v1/products/:id/itinerary", a.itinerary)
+	read("/api/v1/products/:id/calendar", a.calendar)
+	read("/api/v1/products/:id/departures", a.departures)
+	read("/api/v1/products/:id/availability", a.availability)
+	read("/api/v1/products/:id/reviews", a.reviews)
+	read("/api/v1/products/:id/related", a.related)
+	read("/api/v1/collections", a.collections)
+	read("/api/v1/collections/:id", a.collection)
+	read("/api/v1/collections/:id/products", a.collectionProducts)
+	read("/api/v1/campaigns", a.campaigns)
+	read("/api/v1/campaigns/:id", a.campaign)
+	read("/api/v1/articles", a.articles)
+	read("/api/v1/articles/:id", a.article)
+	read("/api/v1/faqs", a.faqs)
+	read("/healthz", func(ctx *gin.Context) {
+		if valid(ctx.Writer, newQuery(ctx.Request)) && databaseOK(ctx.Writer, c.Ping(ctx.Request.Context())) {
+			a.reply(ctx.Writer, map[string]string{"status": "ok"})
 		}
 	})
-	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+	read("/openapi.json", func(ctx *gin.Context) {
 		b, _ := assets.Files.ReadFile("openapi.json")
-		_, _ = w.Write(b)
+		ctx.Data(200, "application/json", b)
 	})
-	mux.HandleFunc("/images/", func(w http.ResponseWriter, r *http.Request) {
-		mime, content, err := c.Media(r.Context(), r.URL.Path)
-		if !resourceOK(w, err, "image") {
-			return
+	read("/images/*path", func(ctx *gin.Context) {
+		mime, content, err := c.Media(ctx.Request.Context(), ctx.Request.URL.Path)
+		if resourceOK(ctx.Writer, err, "image") {
+			ctx.Header("Content-Type", mime)
+			http.ServeContent(ctx.Writer, ctx.Request, ctx.Request.URL.Path, time.Time{}, bytes.NewReader(content))
 		}
-		w.Header().Set("Content-Type", mime)
-		http.ServeContent(w, r, r.URL.Path, time.Time{}, bytes.NewReader(content))
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/docs" {
-			failure(w, 404, "not_found", "route not found")
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	explorer := func(ctx *gin.Context) {
 		b, _ := assets.Files.ReadFile("index.html")
-		_, _ = w.Write(b)
+		ctx.Data(200, "text/html; charset=utf-8", b)
+	}
+	read("/", explorer)
+	read("/docs", func(ctx *gin.Context) {
+		b, _ := assets.Files.ReadFile("docs.html")
+		ctx.Data(200, "text/html; charset=utf-8", b)
 	})
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Cache-Control", "no-store")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(204)
-			return
+	limited := newLimiter(opts)
+	router.POST("/api/v1/products/:id/quotes", limited, a.quote)
+	protected := router.Group("/api/v1", authorize(opts.APIKey), limited)
+	for _, resource := range []string{"wishlists", "trips"} {
+		protected.GET("/"+resource, a.documents)
+		protected.HEAD("/"+resource, a.documents)
+		protected.GET("/"+resource+"/:id", a.document)
+		protected.HEAD("/"+resource+"/:id", a.document)
+		protected.POST("/"+resource, a.saveDocument)
+		protected.PUT("/"+resource+"/:id", a.saveDocument)
+	}
+	protected.POST("/products/:id/reviews", a.saveReview)
+	protected.PUT("/products/:id/reviews/:review_id", a.saveReview)
+	protected.GET("/products/:id/reviews/:review_id", a.review)
+	protected.HEAD("/products/:id/reviews/:review_id", a.review)
+	router.NoMethod(func(ctx *gin.Context) {
+		if allow := ctx.Writer.Header().Get("Allow"); allow != "" {
+			ctx.Header("Allow", allow+", OPTIONS")
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD, OPTIONS")
-			failure(w, 405, "method_not_allowed", "only GET, HEAD and OPTIONS are supported")
-			return
-		}
-		mux.ServeHTTP(w, r)
+		abort(ctx, 405, "method_not_allowed", "method is not supported for this route")
 	})
+	router.NoRoute(func(ctx *gin.Context) { abort(ctx, 404, "not_found", "route not found") })
+	return router
 }
 
-func (a *API) getProduct(w http.ResponseWriter, r *http.Request) (catalog.Product, bool) {
-	p, err := a.catalog.Product(r.Context(), r.PathValue("id"))
+func (a *API) getProduct(ctx *gin.Context) (catalog.Product, bool) {
+	w, r := ctx.Writer, ctx.Request
+	p, err := a.catalog.Product(r.Context(), ctx.Param("id"))
 	return p, resourceOK(w, err, "product")
 }
 
-func (a *API) products(w http.ResponseWriter, r *http.Request) {
+func (a *API) products(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q, s, page, size := a.searchQuery(r)
 	if !valid(w, q) {
 		return
@@ -197,15 +219,17 @@ func (a *API) products(w http.ResponseWriter, r *http.Request) {
 	f := catalog.CountFacets(items)
 	listReply(a, w, items, page, size, &f)
 }
-func (a *API) product(w http.ResponseWriter, r *http.Request) {
+func (a *API) product(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
-	if p, ok := a.getProduct(w, r); ok {
+	if p, ok := a.getProduct(ctx); ok {
 		a.reply(w, p)
 	}
 }
-func (a *API) filters(w http.ResponseWriter, r *http.Request) {
+func (a *API) filters(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q, s, _, _ := a.searchQuery(r)
 	if !valid(w, q) {
 		return
@@ -225,7 +249,8 @@ type MapPoint struct {
 	Price     catalog.Price `json:"price"`
 }
 
-func (a *API) productMap(w http.ResponseWriter, r *http.Request) {
+func (a *API) productMap(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q, s, page, size := a.searchQuery(r)
 	if !valid(w, q) {
 		return
@@ -241,11 +266,12 @@ func (a *API) productMap(w http.ResponseWriter, r *http.Request) {
 	listReply(a, w, points, page, size, nil)
 }
 
-func (a *API) options(w http.ResponseWriter, r *http.Request) {
+func (a *API) options(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
-	p, ok := a.getProduct(w, r)
+	p, ok := a.getProduct(ctx)
 	if !ok {
 		return
 	}
@@ -256,11 +282,12 @@ func (a *API) options(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reply(w, p.Options())
 }
-func (a *API) itinerary(w http.ResponseWriter, r *http.Request) {
+func (a *API) itinerary(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	if !valid(w, newQuery(r)) {
 		return
 	}
-	p, ok := a.getProduct(w, r)
+	p, ok := a.getProduct(ctx)
 	if !ok {
 		return
 	}
@@ -270,17 +297,19 @@ func (a *API) itinerary(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reply(w, p.Itinerary())
 }
-func (a *API) calendar(w http.ResponseWriter, r *http.Request) {
+func (a *API) calendar(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "start_date", "end_date")
 	d := q.dates(a.catalog.Today, 30, 90)
 	if !valid(w, q) {
 		return
 	}
-	if p, ok := a.getProduct(w, r); ok {
+	if p, ok := a.getProduct(ctx); ok {
 		a.reply(w, a.catalog.Calendar(p, d))
 	}
 }
-func (a *API) departures(w http.ResponseWriter, r *http.Request) {
+func (a *API) departures(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "start_date", "end_date", "page", "per_page", "status")
 	d := q.dates(a.catalog.Today, 30, 90)
 	page, size := q.pagination()
@@ -288,7 +317,7 @@ func (a *API) departures(w http.ResponseWriter, r *http.Request) {
 	if !valid(w, q) {
 		return
 	}
-	p, ok := a.getProduct(w, r)
+	p, ok := a.getProduct(ctx)
 	if !ok {
 		return
 	}
@@ -304,8 +333,9 @@ func (a *API) departures(w http.ResponseWriter, r *http.Request) {
 	}
 	listReply(a, w, items, page, size, nil)
 }
-func (a *API) availability(w http.ResponseWriter, r *http.Request) {
-	p, ok := a.getProduct(w, r)
+func (a *API) availability(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
+	p, ok := a.getProduct(ctx)
 	if !ok {
 		return
 	}
@@ -325,14 +355,15 @@ func (a *API) availability(w http.ResponseWriter, r *http.Request) {
 	}
 	a.reply(w, a.catalog.Availability(p, d, adults, children, quantity))
 }
-func (a *API) reviews(w http.ResponseWriter, r *http.Request) {
+func (a *API) reviews(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "page", "per_page", "rating")
 	page, size := q.pagination()
 	rating := q.integer("rating", 0, 1, 5)
 	if !valid(w, q) {
 		return
 	}
-	p, ok := a.getProduct(w, r)
+	p, ok := a.getProduct(ctx)
 	if !ok {
 		return
 	}
@@ -342,13 +373,14 @@ func (a *API) reviews(w http.ResponseWriter, r *http.Request) {
 	}
 	listReply(a, w, items, page, size, nil)
 }
-func (a *API) related(w http.ResponseWriter, r *http.Request) {
+func (a *API) related(ctx *gin.Context) {
+	w, r := ctx.Writer, ctx.Request
 	q := newQuery(r, "page", "per_page")
 	page, size := q.pagination()
 	if !valid(w, q) {
 		return
 	}
-	p, ok := a.getProduct(w, r)
+	p, ok := a.getProduct(ctx)
 	if !ok {
 		return
 	}
