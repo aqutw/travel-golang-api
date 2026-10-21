@@ -5,6 +5,7 @@
 ```text
 travel-golang-api/
 ├── cmd/
+│   ├── examplegen/main.go             # HTTP request/response 範例產生器
 │   ├── server/main.go                 # HTTP server 入口
 │   └── specgen/
 │       ├── main.go                    # 回應 schema 產生器
@@ -42,8 +43,10 @@ travel-golang-api/
 │   ├── verify_api.py                  # API 回應驗證
 │   ├── check_content.py               # 檔案內容掃描
 │   ├── verify_get_compat.py            # GET 遷移前後比對
-│   └── verify_writes.py                # POST/PUT 與私有 GET 驗證
+│   ├── verify_writes.py                # POST/PUT 與私有 GET 驗證
+│   └── verify_examples.py              # README 表格、連結與範例契約驗證
 ├── docs/
+│   ├── examples/*.http                # 每個 API 的 request/response 範例
 │   ├── api.md
 │   ├── architecture.md
 │   ├── information-architecture.md
@@ -112,6 +115,15 @@ python3 -m venv /tmp/travel-api-venv
 
 `verify_writes.py` 會建立收藏、行程及評價，可搭配測試資料庫執行。
 
+重新產生 README API 表格與範例，並驗證全部範例：
+
+```sh
+make examples
+/tmp/travel-api-venv/bin/python scripts/verify_examples.py
+```
+
+產生範例時使用暫存資料庫，不修改 `data/travel.sqlite3`。
+
 ### 使用 Docker
 
 ```sh
@@ -144,412 +156,51 @@ docker run --rm -p 8080:8080 \
 
 ## Request / response examples
 
-以下回應以 `REFERENCE_DATE=2026-10-20` 為例。
+共 42 個 API：35 GET、4 POST、3 PUT。每一列對應一組 method 與 endpoint，範例包含完整 JSON 回應。
 
-### 健康檢查
+範例日期為 `REFERENCE_DATE=2026-10-20`。`{{API_WRITE_KEY}}` 請替換為服務金鑰；`{{wishlist_id}}`、`{{trip_id}}`、`{{review_id}}` 請使用對應 POST 回傳的 ID。回應中的時間為固定示例值，PUT 範例使用建立後的 `version=1`。
 
-Request：
-
-```sh
-curl -i 'http://localhost:8080/healthz'
-```
-
-Response：`HTTP 200`
-
-```json
-{
-  "data": {
-    "status": "ok"
-  },
-  "meta": {
-    "mock": true,
-    "locale": "zh-TW",
-    "currency": "TWD",
-    "reference_date": "2026-10-20"
-  }
-}
-```
-
-### 搜尋住宿商品
-
-Request：
-
-```sh
-curl -i 'http://localhost:8080/api/v1/products?type=stay&destination_id=taipei&per_page=1'
-```
-
-Response：`HTTP 200`
-
-```json
-{
-  "data": [
-    {
-      "id": "stay-001",
-      "type": "stay",
-      "title": "台北｜木光旅宿",
-      "summary": "以台北為起點，享受從容的住宿時光。所有內容皆為測試假資料。",
-      "destination_id": "taipei",
-      "location_name": "台灣・台北",
-      "latitude": 25.033,
-      "longitude": 121.565,
-      "cover": {
-        "url": "/images/stay.svg",
-        "alt": "台北｜木光旅宿示意圖",
-        "width": 1200,
-        "height": 800
-      },
-      "price": {
-        "amount": 2400,
-        "original_amount": 2880,
-        "currency": "TWD",
-        "unit": "night",
-        "tax_included": true
-      },
-      "rating": {
-        "average": 4.6,
-        "count": 5
-      },
-      "tags": [
-        "親子友善",
-        "熱門推薦",
-        "飯店"
-      ],
-      "amenities": [
-        "wifi",
-        "breakfast",
-        "parking"
-      ],
-      "duration_days": 1,
-      "popularity": 1000,
-      "free_cancellation": true,
-      "confirmation": "instant",
-      "detail_url": "/api/v1/products/stay-001"
-    }
-  ],
-  "meta": {
-    "mock": true,
-    "locale": "zh-TW",
-    "currency": "TWD",
-    "reference_date": "2026-10-20",
-    "pagination": {
-      "page": 1,
-      "per_page": 1,
-      "total": 1,
-      "total_pages": 1,
-      "has_next": false
-    },
-    "facets": {
-      "types": [
-        {
-          "value": "stay",
-          "count": 1
-        }
-      ],
-      "destinations": [
-        {
-          "value": "taipei",
-          "count": 1
-        }
-      ],
-      "tags": [
-        {
-          "value": "熱門推薦",
-          "count": 1
-        },
-        {
-          "value": "親子友善",
-          "count": 1
-        },
-        {
-          "value": "飯店",
-          "count": 1
-        }
-      ],
-      "amenities": [
-        {
-          "value": "breakfast",
-          "count": 1
-        },
-        {
-          "value": "parking",
-          "count": 1
-        },
-        {
-          "value": "wifi",
-          "count": 1
-        }
-      ],
-      "min_price": 2400,
-      "max_price": 2400
-    }
-  }
-}
-```
-
-### 查詢郵輪艙房
-
-Request：
-
-```sh
-curl -i 'http://localhost:8080/api/v1/products/cruise-001/cabins'
-```
-
-Response：`HTTP 200`
-
-```json
-{
-  "data": [
-    {
-      "id": "cruise-001-opt-1",
-      "name": "內艙雙人房",
-      "capacity": 2,
-      "description": "內艙雙人房，提供測試用價格與容量。",
-      "amenities": [
-        "chinese_service",
-        "guide"
-      ],
-      "image": {
-        "url": "/images/cruise.svg",
-        "alt": "內艙雙人房示意圖",
-        "width": 1200,
-        "height": 800
-      },
-      "price": {
-        "amount": 12900,
-        "original_amount": 15480,
-        "currency": "TWD",
-        "unit": "person",
-        "tax_included": true
-      }
-    },
-    {
-      "id": "cruise-001-opt-2",
-      "name": "陽台四人房",
-      "capacity": 4,
-      "description": "陽台四人房，提供測試用價格與容量。",
-      "amenities": [
-        "chinese_service",
-        "guide"
-      ],
-      "image": {
-        "url": "/images/cruise.svg",
-        "alt": "陽台四人房示意圖",
-        "width": 1200,
-        "height": 800
-      },
-      "price": {
-        "amount": 15400,
-        "original_amount": 18480,
-        "currency": "TWD",
-        "unit": "person",
-        "tax_included": true
-      }
-    }
-  ],
-  "meta": {
-    "mock": true,
-    "locale": "zh-TW",
-    "currency": "TWD",
-    "reference_date": "2026-10-20"
-  }
-}
-```
-
-### 查詢住宿庫存與報價
-
-Request：
-
-```sh
-curl -i 'http://localhost:8080/api/v1/products/stay-001/availability?start_date=2026-11-01&end_date=2026-11-03&adults=2&quantity=1'
-```
-
-Response：`HTTP 200`
-
-```json
-{
-  "data": {
-    "product_id": "stay-001",
-    "start_date": "2026-11-01",
-    "end_date": "2026-11-03",
-    "nights": 2,
-    "adults": 2,
-    "children": 0,
-    "quantity": 1,
-    "available": true,
-    "currency": "TWD",
-    "options": [
-      {
-        "option_id": "stay-001-opt-1",
-        "name": "經典雙人房",
-        "capacity": 2,
-        "remaining": 0,
-        "available": false,
-        "unit_price": {
-          "amount": 2400,
-          "original_amount": 2880,
-          "currency": "TWD",
-          "unit": "night",
-          "tax_included": true
-        },
-        "multiplier": 2,
-        "total_amount": 4800
-      },
-      {
-        "option_id": "stay-001-opt-2",
-        "name": "景觀四人房",
-        "capacity": 4,
-        "remaining": 1,
-        "available": true,
-        "unit_price": {
-          "amount": 3000,
-          "original_amount": 3600,
-          "currency": "TWD",
-          "unit": "night",
-          "tax_included": true
-        },
-        "multiplier": 2,
-        "total_amount": 6000
-      }
-    ],
-    "disclaimer": "模擬報價，不保留庫存，也不建立訂單。"
-  },
-  "meta": {
-    "mock": true,
-    "locale": "zh-TW",
-    "currency": "TWD",
-    "reference_date": "2026-10-20"
-  }
-}
-```
-
-### 無效查詢參數
-
-Request：
-
-```sh
-curl -i 'http://localhost:8080/api/v1/products?page=0'
-```
-
-Response：`HTTP 400`
-
-```json
-{
-  "error": {
-    "code": "invalid_query",
-    "message": "page: must be an integer between 1 and 1000000"
-  }
-}
-```
-
-### 建立收藏清單
-
-Request：
-
-```sh
-curl -i -X POST 'http://localhost:8080/api/v1/wishlists' \
-  -H "X-API-Key: $API_WRITE_KEY" \
-  -H 'Idempotency-Key: weekend-wishlist-001' \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"週末收藏","description":"候選住宿","product_ids":["stay-001"]}'
-```
-
-Response：`HTTP 201`，`Location: /api/v1/wishlists/wishlist-<generated-id>`。ID 與時間由服務產生。
-
-```json
-{
-  "data": {
-    "id": "wishlist-<generated-id>",
-    "kind": "wishlist",
-    "content": {
-      "title": "週末收藏",
-      "description": "候選住宿",
-      "product_ids": ["stay-001"]
-    },
-    "version": 1,
-    "created_at": "2026-10-20T08:00:00Z",
-    "updated_at": "2026-10-20T08:00:00Z"
-  },
-  "meta": {
-    "mock": true,
-    "locale": "zh-TW",
-    "currency": "TWD",
-    "reference_date": "2026-10-20"
-  }
-}
-```
-
-相同 `Idempotency-Key` 與 body 重試回傳同一筆資料，並附上 `Idempotency-Replayed: true`。相同 key 配上不同 body 回傳 `409 idempotency_conflict`。
-
-### 更新收藏清單
-
-Request：以建立時回傳的 ID 取代 `<id>`。
-
-```sh
-curl -i -X PUT 'http://localhost:8080/api/v1/wishlists/<id>' \
-  -H "X-API-Key: $API_WRITE_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"親子住宿","description":"更新候選","product_ids":["stay-002"],"version":1}'
-```
-
-Response：`HTTP 200`。
-
-```json
-{
-  "data": {
-    "id": "wishlist-<generated-id>",
-    "kind": "wishlist",
-    "content": {
-      "title": "親子住宿",
-      "description": "更新候選",
-      "product_ids": ["stay-002"]
-    },
-    "version": 2,
-    "created_at": "2026-10-20T08:00:00Z",
-    "updated_at": "2026-10-20T08:05:00Z"
-  },
-  "meta": {
-    "mock": true,
-    "locale": "zh-TW",
-    "currency": "TWD",
-    "reference_date": "2026-10-20"
-  }
-}
-```
-
-PUT 完整取代內容。不同內容帶入過期版本回傳 `409 version_conflict`；重送目前相同內容不增加版本。
-
-### JSON 報價
-
-Request：
-
-```sh
-curl -i -X POST 'http://localhost:8080/api/v1/products/stay-001/quotes' \
-  -H 'Content-Type: application/json' \
-  -d '{"start_date":"2026-11-01","end_date":"2026-11-03","adults":2,"children":0,"quantity":1}'
-```
-
-Response：`HTTP 200`，回應格式與前述「查詢住宿庫存與報價」範例相同。
-
-### 巢狀欄位驗證錯誤
-
-Request：
-
-```sh
-curl -i -X POST 'http://localhost:8080/api/v1/trips' \
-  -H "X-API-Key: $API_WRITE_KEY" \
-  -H 'Idempotency-Key: invalid-trip-001' \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"台北兩日","start_date":"2026-11-01","end_date":"2026-11-03","adults":2,"items":[{"product_id":"stay-001","day":0}]}'
-```
-
-Response：`HTTP 400`。
-
-```json
-{
-  "error": {
-    "code": "invalid_body",
-    "message": "JSON body validation failed",
-    "fields": [{"field":"items[0].day","rule":"required"}]
-  }
-}
-```
+| Method | Endpoint | 說明 | Request 範例 | Response 範例 |
+| --- | --- | --- | --- | --- |
+| `GET` | `/api/v1/articles` | 旅遊內容列表 | [Request](docs/examples/get-api-v1-articles.request.http) | [Response](docs/examples/get-api-v1-articles.response.http) |
+| `GET` | `/api/v1/articles/{id}` | 旅遊文章詳情 | [Request](docs/examples/get-api-v1-articles-id.request.http) | [Response](docs/examples/get-api-v1-articles-id.response.http) |
+| `GET` | `/api/v1/campaigns` | 優惠活動列表 | [Request](docs/examples/get-api-v1-campaigns.request.http) | [Response](docs/examples/get-api-v1-campaigns.response.http) |
+| `GET` | `/api/v1/campaigns/{id}` | 優惠條件與折扣碼 | [Request](docs/examples/get-api-v1-campaigns-id.request.http) | [Response](docs/examples/get-api-v1-campaigns-id.response.http) |
+| `GET` | `/api/v1/categories` | 旅遊品類捷徑 | [Request](docs/examples/get-api-v1-categories.request.http) | [Response](docs/examples/get-api-v1-categories.response.http) |
+| `GET` | `/api/v1/collections` | 主題集合列表 | [Request](docs/examples/get-api-v1-collections.request.http) | [Response](docs/examples/get-api-v1-collections.response.http) |
+| `GET` | `/api/v1/collections/{id}` | 主題集合內容 | [Request](docs/examples/get-api-v1-collections-id.request.http) | [Response](docs/examples/get-api-v1-collections-id.response.http) |
+| `GET` | `/api/v1/collections/{id}/products` | 集合內的商品搜尋 | [Request](docs/examples/get-api-v1-collections-id-products.request.http) | [Response](docs/examples/get-api-v1-collections-id-products.response.http) |
+| `GET` | `/api/v1/config` | 前端設定與選項 | [Request](docs/examples/get-api-v1-config.request.http) | [Response](docs/examples/get-api-v1-config.response.http) |
+| `GET` | `/api/v1/cruise/regions` | 郵輪港口、航區與品牌 | [Request](docs/examples/get-api-v1-cruise-regions.request.http) | [Response](docs/examples/get-api-v1-cruise-regions.response.http) |
+| `GET` | `/api/v1/destinations` | 目的地列表 | [Request](docs/examples/get-api-v1-destinations.request.http) | [Response](docs/examples/get-api-v1-destinations.response.http) |
+| `GET` | `/api/v1/destinations/{id}` | 目的地探索頁 | [Request](docs/examples/get-api-v1-destinations-id.request.http) | [Response](docs/examples/get-api-v1-destinations-id.response.http) |
+| `GET` | `/api/v1/faqs` | 常見問題搜尋 | [Request](docs/examples/get-api-v1-faqs.request.http) | [Response](docs/examples/get-api-v1-faqs.response.http) |
+| `GET` | `/api/v1/home` | 首頁區塊聚合 | [Request](docs/examples/get-api-v1-home.request.http) | [Response](docs/examples/get-api-v1-home.response.http) |
+| `GET` | `/api/v1/navigation` | 主導覽與頁尾 | [Request](docs/examples/get-api-v1-navigation.request.http) | [Response](docs/examples/get-api-v1-navigation.response.http) |
+| `GET` | `/api/v1/products` | 商品搜尋結果 | [Request](docs/examples/get-api-v1-products.request.http) · [400](docs/examples/get-api-v1-products.invalid.request.http) | [Response](docs/examples/get-api-v1-products.response.http) · [400](docs/examples/get-api-v1-products.invalid.response.http) |
+| `GET` | `/api/v1/products/map` | 商品地圖點位 | [Request](docs/examples/get-api-v1-products-map.request.http) | [Response](docs/examples/get-api-v1-products-map.response.http) |
+| `GET` | `/api/v1/products/{id}` | 商品完整詳情 | [Request](docs/examples/get-api-v1-products-id.request.http) | [Response](docs/examples/get-api-v1-products-id.response.http) |
+| `GET` | `/api/v1/products/{id}/availability` | 方案容量、庫存與報價 | [Request](docs/examples/get-api-v1-products-id-availability.request.http) | [Response](docs/examples/get-api-v1-products-id-availability.response.http) |
+| `GET` | `/api/v1/products/{id}/cabins` | 郵輪艙房 | [Request](docs/examples/get-api-v1-products-id-cabins.request.http) | [Response](docs/examples/get-api-v1-products-id-cabins.response.http) |
+| `GET` | `/api/v1/products/{id}/calendar` | 每日起價與庫存日曆 | [Request](docs/examples/get-api-v1-products-id-calendar.request.http) | [Response](docs/examples/get-api-v1-products-id-calendar.response.http) |
+| `GET` | `/api/v1/products/{id}/departures` | 郵輪與跟團出發日期 | [Request](docs/examples/get-api-v1-products-id-departures.request.http) | [Response](docs/examples/get-api-v1-products-id-departures.response.http) |
+| `GET` | `/api/v1/products/{id}/itinerary` | 郵輪與跟團每日行程 | [Request](docs/examples/get-api-v1-products-id-itinerary.request.http) | [Response](docs/examples/get-api-v1-products-id-itinerary.response.http) |
+| `GET` | `/api/v1/products/{id}/plans` | 跟團、體驗與交通方案 | [Request](docs/examples/get-api-v1-products-id-plans.request.http) | [Response](docs/examples/get-api-v1-products-id-plans.response.http) |
+| `POST` | `/api/v1/products/{id}/quotes` | 以 JSON 查詢方案容量與報價 | [Request](docs/examples/post-api-v1-products-id-quotes.request.http) | [Response](docs/examples/post-api-v1-products-id-quotes.response.http) |
+| `GET` | `/api/v1/products/{id}/related` | 相關商品推薦 | [Request](docs/examples/get-api-v1-products-id-related.request.http) | [Response](docs/examples/get-api-v1-products-id-related.response.http) |
+| `GET` | `/api/v1/products/{id}/reviews` | 商品旅客評價 | [Request](docs/examples/get-api-v1-products-id-reviews.request.http) | [Response](docs/examples/get-api-v1-products-id-reviews.response.http) |
+| `POST` | `/api/v1/products/{id}/reviews` | 建立商品評價 | [Request](docs/examples/post-api-v1-products-id-reviews.request.http) | [Response](docs/examples/post-api-v1-products-id-reviews.response.http) |
+| `GET` | `/api/v1/products/{id}/reviews/{review_id}` | 取得可編輯評價與版本 | [Request](docs/examples/get-api-v1-products-id-reviews-review_id.request.http) | [Response](docs/examples/get-api-v1-products-id-reviews-review_id.response.http) |
+| `PUT` | `/api/v1/products/{id}/reviews/{review_id}` | 完整取代 API 建立的評價 | [Request](docs/examples/put-api-v1-products-id-reviews-review_id.request.http) | [Response](docs/examples/put-api-v1-products-id-reviews-review_id.response.http) |
+| `GET` | `/api/v1/products/{id}/rooms` | 住宿房型 | [Request](docs/examples/get-api-v1-products-id-rooms.request.http) | [Response](docs/examples/get-api-v1-products-id-rooms.response.http) |
+| `GET` | `/api/v1/search/filters` | 目前查詢結果的篩選計數 | [Request](docs/examples/get-api-v1-search-filters.request.http) | [Response](docs/examples/get-api-v1-search-filters.response.http) |
+| `GET` | `/api/v1/search/suggestions` | 目的地與商品自動完成 | [Request](docs/examples/get-api-v1-search-suggestions.request.http) | [Response](docs/examples/get-api-v1-search-suggestions.response.http) |
+| `GET` | `/api/v1/trips` | 查詢旅遊行程 | [Request](docs/examples/get-api-v1-trips.request.http) | [Response](docs/examples/get-api-v1-trips.response.http) |
+| `POST` | `/api/v1/trips` | 建立旅遊行程 | [Request](docs/examples/post-api-v1-trips.request.http) · [400](docs/examples/post-api-v1-trips.invalid.request.http) | [Response](docs/examples/post-api-v1-trips.response.http) · [400](docs/examples/post-api-v1-trips.invalid.response.http) |
+| `GET` | `/api/v1/trips/{id}` | 取得旅遊行程 | [Request](docs/examples/get-api-v1-trips-id.request.http) | [Response](docs/examples/get-api-v1-trips-id.response.http) |
+| `PUT` | `/api/v1/trips/{id}` | 完整取代旅遊行程 | [Request](docs/examples/put-api-v1-trips-id.request.http) | [Response](docs/examples/put-api-v1-trips-id.response.http) |
+| `GET` | `/api/v1/wishlists` | 查詢收藏清單 | [Request](docs/examples/get-api-v1-wishlists.request.http) | [Response](docs/examples/get-api-v1-wishlists.response.http) |
+| `POST` | `/api/v1/wishlists` | 建立收藏清單 | [Request](docs/examples/post-api-v1-wishlists.request.http) | [Response](docs/examples/post-api-v1-wishlists.response.http) |
+| `GET` | `/api/v1/wishlists/{id}` | 取得收藏清單 | [Request](docs/examples/get-api-v1-wishlists-id.request.http) | [Response](docs/examples/get-api-v1-wishlists-id.response.http) |
+| `PUT` | `/api/v1/wishlists/{id}` | 完整取代收藏清單 | [Request](docs/examples/put-api-v1-wishlists-id.request.http) | [Response](docs/examples/put-api-v1-wishlists-id.response.http) |
+| `GET` | `/healthz` | 健康檢查 | [Request](docs/examples/get-healthz.request.http) | [Response](docs/examples/get-healthz.response.http) |

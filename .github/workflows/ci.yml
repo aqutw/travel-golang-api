@@ -23,6 +23,8 @@ jobs:
           git diff --exit-code -- . ':!data/travel.sqlite3'
       - run: make vet race build
       - run: pip install -r requirements-dev.txt
+      - name: Verify README links and all API examples
+        run: make verify-examples
       - name: Validate the running API and OpenAPI contract
         run: |
           export API_WRITE_KEY=ci-test-key-at-least-32-bytes-000000
